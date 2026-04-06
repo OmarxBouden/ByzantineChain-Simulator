@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 from typing import List, Dict
 
+from configs.scenario import ScenarioConfig, PRESETS
 from engine.tasks import TaskGenerator, Task
 from engine.agents import Agent, HonestAgent, FreeRiderAgent, StrategicAgent, SelectiveAgent
 from engine.ledger import Ledger
@@ -20,42 +21,38 @@ from events.schema import (
 
 
 class Simulation:
-    def __init__(
-        self,
-        n_honest: int = 14,
-        n_freerider: int = 3,
-        n_strategic: int = 2,
-        n_selective: int = 1,
-        n_rounds: int = 200,
-        seed: int = 42,
-        output_dir: str = "output",
-    ):
-        self.n_rounds = n_rounds
-        self.seed = seed
-        self.output_dir = Path(output_dir)
+    def __init__(self, config: ScenarioConfig = None, output_root: str = "output"):
+        self.config = config or PRESETS["baseline"]
+        cfg = self.config
+
+        self.output_dir = Path(output_root) / cfg.name
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         # Create agents
         self.agents: List[Agent] = []
         idx = 0
-        for i in range(n_honest):
-            self.agents.append(HonestAgent(f"A{idx:03d}", seed=seed + idx))
+        for _ in range(cfg.n_honest):
+            self.agents.append(HonestAgent(f"A{idx:03d}", seed=cfg.seed + idx))
             idx += 1
-        for i in range(n_freerider):
-            self.agents.append(FreeRiderAgent(f"A{idx:03d}", seed=seed + idx))
+        for _ in range(cfg.n_freerider):
+            self.agents.append(FreeRiderAgent(f"A{idx:03d}", seed=cfg.seed + idx))
             idx += 1
-        for i in range(n_strategic):
-            self.agents.append(StrategicAgent(f"A{idx:03d}", seed=seed + idx))
+        for _ in range(cfg.n_strategic):
+            self.agents.append(StrategicAgent(f"A{idx:03d}", seed=cfg.seed + idx))
             idx += 1
-        for i in range(n_selective):
-            self.agents.append(SelectiveAgent(f"A{idx:03d}", seed=seed + idx))
+        for _ in range(cfg.n_selective):
+            self.agents.append(SelectiveAgent(f"A{idx:03d}", seed=cfg.seed + idx))
             idx += 1
 
         # Components
-        self.task_gen = TaskGenerator(seed=seed)
+        self.task_gen = TaskGenerator(seed=cfg.seed)
         self.ledger = Ledger(output_path=str(self.output_dir / "events.jsonl"))
         self.assigner = LowestBidAssignment()
-        self.verifier = MajorityVoteVerification(seed=seed)
+        self.verifier = MajorityVoteVerification(
+            quality_threshold=cfg.quality_threshold,
+            num_verifiers=cfg.num_verifiers,
+            seed=cfg.seed,
+        )
 
         # Ground truth for evaluation
         self.ground_truth = {
@@ -63,10 +60,13 @@ class Simulation:
         }
 
     def run(self):
-        print(f"Starting simulation: {len(self.agents)} agents, {self.n_rounds} rounds")
-        print(f"Population: {self._population_summary()}")
+        cfg = self.config
+        print(f"[{cfg.name}] Starting: {cfg.total_agents} agents, {cfg.n_rounds} rounds")
+        print(f"  Population: {self._population_summary()}")
+        if cfg.description:
+            print(f"  Description: {cfg.description}")
 
-        for rnd in range(1, self.n_rounds + 1):
+        for rnd in range(1, cfg.n_rounds + 1):
             self._run_round(rnd)
 
         # Save ground truth
@@ -74,11 +74,15 @@ class Simulation:
         with open(gt_path, "w") as f:
             json.dump(self.ground_truth, f, indent=2)
 
-        # Print summary
+        # Save config
+        self.config.save(self.output_dir / "config.json")
+
         self._print_summary()
+        return self.output_dir
 
     def _run_round(self, rnd: int):
         ts = time.time()
+        cfg = self.config
 
         # 1. Generate task
         task = self.task_gen.generate()
@@ -88,7 +92,7 @@ class Simulation:
             min_effort=task.min_effort,
         ))
 
-        # 2. Collect bids (all agents bid on every task for simplicity)
+        # 2. Collect bids
         bids = []
         for agent in self.agents:
             bid_amount, justification, true_cost = agent.bid(task)
@@ -132,7 +136,7 @@ class Simulation:
             penalty = 0.0
         else:
             reward = 0.0
-            penalty = task.reward * 0.5  # slash 50% of task reward
+            penalty = task.reward * cfg.penalty_ratio
 
         winner.balance += reward - penalty
         self.ledger.append(Settlement(
@@ -169,11 +173,11 @@ class Simulation:
             accepts_by_type[atype].append(v["verdict"] == "accept")
 
         print(f"\n{'='*50}")
-        print(f"SIMULATION COMPLETE — {self.n_rounds} rounds")
+        print(f"SIMULATION COMPLETE — {self.config.name}")
         print(f"{'='*50}")
         print(f"\nAssignment wins by type:")
         for t, count in sorted(wins_by_type.items()):
-            print(f"  {t:12s}: {count:4d} wins ({count/self.n_rounds*100:.1f}%)")
+            print(f"  {t:12s}: {count:4d} wins ({count/self.config.n_rounds*100:.1f}%)")
 
         print(f"\nAcceptance rate by type:")
         for t, outcomes in sorted(accepts_by_type.items()):
@@ -187,17 +191,35 @@ class Simulation:
         for a in sorted(self.agents, key=lambda x: x.balance)[:3]:
             print(f"  {a.agent_id} ({a.agent_type:12s}): {a.balance:+.2f}")
 
-        print(f"\nEvents written to: {self.ledger.output_path}")
-        print(f"Ground truth: {self.output_dir / 'ground_truth.json'}")
+        print(f"\nOutput: {self.output_dir}/")
 
 
 if __name__ == "__main__":
-    sim = Simulation(
-        n_honest=14,
-        n_freerider=3,
-        n_strategic=2,
-        n_selective=1,
-        n_rounds=200,
-        seed=42,
-    )
-    sim.run()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Run a simulation scenario")
+    parser.add_argument("scenario", nargs="?", default="baseline",
+                        help=f"Preset name or path to config.json. "
+                             f"Presets: {', '.join(PRESETS.keys())}")
+    parser.add_argument("--all", action="store_true",
+                        help="Run all preset scenarios")
+    parser.add_argument("--list", action="store_true",
+                        help="List available presets")
+    args = parser.parse_args()
+
+    if args.list:
+        for name, cfg in PRESETS.items():
+            print(f"  {name:25s} {cfg.population_str:15s} {cfg.description}")
+    elif args.all:
+        for name, cfg in PRESETS.items():
+            print(f"\n{'─'*60}")
+            Simulation(config=cfg).run()
+    else:
+        if args.scenario.endswith(".json"):
+            cfg = ScenarioConfig.load(Path(args.scenario))
+        elif args.scenario in PRESETS:
+            cfg = PRESETS[args.scenario]
+        else:
+            parser.error(f"Unknown preset '{args.scenario}'. "
+                         f"Use --list to see available presets.")
+        Simulation(config=cfg).run()
