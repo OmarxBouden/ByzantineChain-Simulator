@@ -34,8 +34,8 @@ TYPE_COLORS = {
 # ── Data loading ─────────────────────────────────────────────────────────────
 
 def _ensure_output():
-    """Run the baseline scenario if no output exists at all."""
-    if OUTPUT_ROOT.exists() and any(OUTPUT_ROOT.iterdir()):
+    """Run the baseline scenario if no scenario output exists."""
+    if list_scenarios():
         return
     with st.spinner("No output found — running baseline simulation..."):
         subprocess.run(
