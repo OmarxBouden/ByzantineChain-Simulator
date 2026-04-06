@@ -8,6 +8,8 @@ Reads output/events.jsonl + output/ground_truth.json and renders four panels:
 """
 
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pandas as pd
@@ -20,6 +22,21 @@ import streamlit as st
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_EVENTS = ROOT / "output" / "events.jsonl"
 DEFAULT_GT = ROOT / "output" / "ground_truth.json"
+
+
+def _ensure_output():
+    """Run the simulation if output files are missing."""
+    if DEFAULT_EVENTS.exists() and DEFAULT_GT.exists():
+        return
+    with st.spinner("No output found — running simulation..."):
+        subprocess.run(
+            [sys.executable, "-m", "engine.simulation"],
+            cwd=str(ROOT),
+            check=True,
+        )
+
+
+_ensure_output()
 
 TYPE_COLORS = {
     "honest": "#2ecc71",
