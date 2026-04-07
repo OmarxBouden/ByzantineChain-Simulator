@@ -37,9 +37,9 @@ def _ensure_output():
     """Run the baseline scenario if no scenario output exists."""
     if list_scenarios():
         return
-    with st.spinner("No output found — running baseline simulation..."):
+    with st.spinner("No output found — running all preset scenarios..."):
         subprocess.run(
-            [sys.executable, "-m", "engine.simulation", "baseline"],
+            [sys.executable, "-m", "engine.simulation", "--all"],
             cwd=str(ROOT),
             check=True,
         )
@@ -215,7 +215,7 @@ if mode == "Compare":
                 for trace in fig.data:
                     trace.line.color = agent_color(trace.name, ground_truth)
                 fig.update_layout(height=350, showlegend=False)
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, use_container_width=True, key=f"bal_{label}")
 
     # ── Aggregate stats comparison ───────────────────────────────────────────
     st.markdown("#### Aggregate comparison")
@@ -268,6 +268,7 @@ if mode == "Compare":
                     "avg_quality": "{:.3f}",
                 }),
                 use_container_width=True,
+                key=f"stats_{label}",
             )
 
     # ── Detection metrics side by side ───────────────────────────────────────
@@ -290,7 +291,7 @@ if mode == "Compare":
                 )
                 fig.add_vline(x=0.5, line_dash="dash", line_color="grey")
                 fig.update_layout(height=320)
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, use_container_width=True, key=f"qdist_{label}")
 
     st.stop()
 
