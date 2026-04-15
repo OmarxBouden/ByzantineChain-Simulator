@@ -1,7 +1,7 @@
 """Event schema for the simulation.
 
 Every action emits one event. Events are append-only, serialised to JSONL.
-Fields match the paper's H_i^t = {(b_i^j, e_i^j, s_i^j, v_i^j, tau_i^j)}.
+Agent's history corresponds to H_i^t = {(b_i^j, e_i^j, s_i^j, v_i^j, tau_i^j)}.
 Ground-truth fields (agent_true_type, true_cost) are NEVER shown to the Assessor.
 """
 
